@@ -2,6 +2,7 @@
 
 import sys
 import socket
+from print_mac_table import print_mac_table
 
 
 # check arguments
@@ -36,3 +37,9 @@ while True:
     source_mac = ":".join(f"{byte:02x}" for byte in frame[0:6])
     destination_mac = ":".join(f"{byte:02x}" for byte in frame[6:12])
 
+
+    # update mac table with new mac information
+    if source_mac not in mac_table or mac_table[source_mac] != sender_address:
+        mac_table[source_mac] = sender_address
+        print("Switch> MAC Table updated by ARP:\n")
+        print_mac_table(mac_table)
