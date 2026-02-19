@@ -33,6 +33,9 @@ while True:
     # blocks until an ethernet frame is received
     frame, sender_address = server_socket.recvfrom(1518)
 
+    # notify a frame was received
+    print(f"Switch> Frame RECEIVED at port {server_port}.\nSwitch> Source={source_mac}  Destination={destination_mac}")
+
     # gets source and destination mac addresses from the frame
     source_mac = ":".join(f"{byte:02x}" for byte in frame[0:6])
     destination_mac = ":".join(f"{byte:02x}" for byte in frame[6:12])
@@ -43,3 +46,20 @@ while True:
         mac_table[source_mac] = sender_address
         print("Switch> MAC Table updated by ARP:\n")
         print_mac_table(mac_table)
+
+
+    # broadcast ethernet frame to all other ports if its a broadcast
+    if destination_mac == "ff:ff:ff:ff:ff:ff":
+        for mac in list(mac_table.keys()):
+            if (mac == source_mac):
+                pass
+            else:
+                server_socket.sendto(frame, mac_table[mac])
+        print(f"Switch> Frame BROADCASTED to all connected ports except {mac_table[source_mac]}")
+    # send frame to address based on mac table
+    elif destination_mac in mac_table:
+        server_socket.sendto(frame, mac_table[destination_mac])
+        print(f"Switch> Frame SENT to {mac_table[destination_mac]}")
+    # otherwise drop the frame
+    else:
+        print("Switch> Frame DROPPED")
