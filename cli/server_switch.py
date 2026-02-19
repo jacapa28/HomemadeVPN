@@ -23,6 +23,7 @@ server_address = ("0.0.0.0", server_port)
 # start listening at provided port
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind(server_address)
+server_socket.settimeout(1.0)
 print(f"Switch> Accepting traffic at port {server_address[1]}")
 
 # set MAC table
@@ -30,9 +31,12 @@ mac_table = {}
 
 
 while True:
-    # blocks until an ethernet frame is received
-    frame, sender_address = server_socket.recvfrom(1518)
-
+    # blocks until an ethernet frame is received or a keyboard interrupt
+    try:
+        frame, sender_address = server_socket.recvfrom(1518)
+    except socket.timeout:
+        continue
+    
     # gets source and destination mac addresses from the frame
     destination_mac = ":".join(f"{byte:02x}" for byte in frame[0:6])
     source_mac = ":".join(f"{byte:02x}" for byte in frame[6:12])
