@@ -33,12 +33,12 @@ while True:
     # blocks until an ethernet frame is received
     frame, sender_address = server_socket.recvfrom(1518)
 
+    # gets source and destination mac addresses from the frame
+    destination_mac = ":".join(f"{byte:02x}" for byte in frame[0:6])
+    source_mac = ":".join(f"{byte:02x}" for byte in frame[6:12])
+
     # notify a frame was received
     print(f"Switch> Frame RECEIVED at port {server_port}.\nSwitch> Source={source_mac}  Destination={destination_mac}")
-
-    # gets source and destination mac addresses from the frame
-    source_mac = ":".join(f"{byte:02x}" for byte in frame[0:6])
-    destination_mac = ":".join(f"{byte:02x}" for byte in frame[6:12])
 
 
     # update mac table with new mac information
