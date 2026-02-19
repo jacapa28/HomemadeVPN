@@ -9,6 +9,7 @@ def print_mac_table(mac_table: dict[str, (str, int)]) -> None:
     " |---------------------------------------------|")
     
     # for each table entry, it formats the row
+    keys = list(mac_table.keys())
     for mac, port in mac_table.items():
         print(f" |  {mac}  |  {port[0]}:{port[1]}", end="")
         # this gets the correct amount of spacing between the port and row end
@@ -17,8 +18,7 @@ def print_mac_table(mac_table: dict[str, (str, int)]) -> None:
         print("|")
         
         # prints the pretty ending if its the last entry
-        keys = list(mac_table.keys())
-        if mac == mac_table[keys[-1]]:
+        if mac == keys[-1]:
             print(" +---------------------------------------------+")
         else:
             print(" |---------------------------------------------|")
