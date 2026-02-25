@@ -9,6 +9,9 @@
 // ethernet frame length
 #define ETHERNET_MAX_LEN 1518
 
+// brings up the tap device after opening it
+#define TAP_IOCTL_SET_MEDIA_STATUS CTL_CODE(FILE_DEVICE_UNKNOWN, 6, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
 
 // hold data necessary for connection to server
 struct virtual_port {
@@ -44,6 +47,14 @@ int main(int argc, char **argv) {
     virtual_port_init(&vport, argv[1], atoi(argv[2]));
 
 
+    HANDLE send_frames = CreateThread(NULL, 0, forward_traffic_to_switch, &vport, 0, NULL);
+    HANDLE receive_frames = CreateThread(NULL, 0, forward_traffic_to_tap, &vport, 0, NULL);
+
+    WaitForSingleObject(send_frames, INFINITE);
+    WaitForSingleObject(receive_frames, INFINITE);
+
+    WSACleanup();
+    return 0;
 }
 
 
@@ -51,6 +62,23 @@ void virtual_port_init(struct virtual_port *vport, const char *ip, int port) {
     vport->tap_handle = open_tap_handle();
     if (vport->tap_handle == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "FAILED TO OPEN TAP DEVICE\n");
+        ExitProcess(1);
+    }
+
+    ULONG status = 1;
+    DWORD len;
+    if (!DeviceIoControl(
+        vport->tap_handle,
+        TAP_IOCTL_SET_MEDIA_STATUS,
+        &status,
+        sizeof(status),
+        NULL,
+        0,
+        &len,
+        NULL))
+    {
+        DWORD err = GetLastError();
+        fprintf(stderr, "FAILED TO SET TAP MEDIA STATUS: %lu\n", err);
         ExitProcess(1);
     }
 
@@ -99,7 +127,7 @@ DWORD WINAPI forward_traffic_to_switch(LPVOID arg) {
                 buffer,
                 len,
                 0,
-                &vport->switch_address,
+                (struct sockaddr *)&vport->switch_address,
                 sizeof(vport->switch_address)
             );
         }
@@ -112,6 +140,8 @@ DWORD WINAPI forward_traffic_to_switch(LPVOID arg) {
 int read_frame_from_tap(HANDLE tap, char *buffer, int buffer_size) {
     DWORD byte_len;
     if (!ReadFile(tap, buffer, buffer_size, &byte_len, NULL)) {
+        DWORD err = GetLastError();
+        fprintf(stderr, "ReadFile FAILED: %lu\n", err);
         return -1;
     }
     return (int)byte_len;
@@ -126,13 +156,14 @@ DWORD WINAPI forward_traffic_to_tap(LPVOID arg) {
 
     while (1) {
         // this gets traffic over the specified port
+        int address_len = sizeof(vport->switch_address);
         int len = recvfrom(
             vport->port_socket,
             buffer,
             sizeof(buffer),
             0,
-            &vport->switch_address,
-            sizeof(vport->switch_address)
+            (struct sockaddr *)&vport->switch_address,
+            &address_len
         );
 
         // if the frame has actual data and a valid header, sends it to tap
@@ -156,6 +187,8 @@ DWORD WINAPI forward_traffic_to_tap(LPVOID arg) {
 int write_frame_to_tap(HANDLE tap, char *buffer, int buffer_size) {
     DWORD written_len;
     if (!WriteFile(tap, buffer, buffer_size, &written_len, NULL)) {
+        DWORD err = GetLastError();
+        fprintf(stderr, "WriteFile FAILED: %lu\n", err);
         return -1;
     }
     return (int)written_len;

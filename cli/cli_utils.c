@@ -35,6 +35,7 @@ int find_tap_guid(char *tap_guid) {
     char subkey_name[256];
     DWORD subkey_len;
     DWORD index = 0;
+    char guid_found = '1';
 
     while (1) {
         // iterates through the network adapter subkeys until
@@ -97,6 +98,7 @@ int find_tap_guid(char *tap_guid) {
                     &data_len) == ERROR_SUCCESS)
                 {
                     strcpy(tap_guid, guid);
+                    guid_found = '0';
                 }
             }
         }
@@ -105,7 +107,12 @@ int find_tap_guid(char *tap_guid) {
     }
 
     RegCloseKey(hKey);
-    return 0;
+    if (guid_found == '0') {
+        return 0;
+    } else {
+        fprintf(stderr, "NEVER FOUND A TAP GUID\n");
+        return 1;
+    }
 }
 
 
