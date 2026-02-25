@@ -3,18 +3,14 @@
 #include <windows.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <stdio.h>
 #include "cli_utils.h"
 
-
-struct ether_header {
-    uint8_t ether_destination_host[6];
-    uint8_t ether_source_host[6];
-    uint16_t ether_type;
-};
+// ethernet frame length
+#define ETHERNET_MAX_LEN 1518
 
 
+// hold data necessary for connection to server
 struct virtual_port {
     HANDLE tap_handle;
     SOCKET port_socket;
@@ -22,12 +18,22 @@ struct virtual_port {
 };
 
 
+void virtual_port_init(struct virtual_port *vport, const char *ip, int port);
+DWORD WINAPI forward_traffic_to_switch(LPVOID arg);
+int read_frame_from_tap(HANDLE tap, char *buffer, int buffer_size);
+DWORD WINAPI forward_traffic_to_tap(LPVOID arg);
+int write_frame_to_tap(HANDLE tap, char *buffer, int buffer_size);
+
+
+
 int main(int argc, char **argv) {
+    // check for valid argument length
     if (argc != 3) {
         fprintf(stderr, "INVALID ARGUMENTS. COMMAND USAGE:  virtual_port <SERVER_IP> <SERVER_PORT>\n");
         return 1;
     }
 
+    // startup winsock
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2,2), &wsa) != 0) {
         fprintf(stderr, "WINSOCK FAILED TO INITIALIZE\n");
@@ -35,9 +41,9 @@ int main(int argc, char **argv) {
     }
 
     struct virtual_port vport;
-    virtual_port_init(&vport, argv[1], argv[2]);
+    virtual_port_init(&vport, argv[1], atoi(argv[2]));
 
-    
+
 }
 
 
@@ -54,13 +60,103 @@ void virtual_port_init(struct virtual_port *vport, const char *ip, int port) {
         ExitProcess(1);
     }
 
+    // sets the family to IPv4
     vport->switch_address.sin_family = AF_INET;
-    vport->switch_address.sin_port = htons(port);
 
+    // sets the port and ip using big-endian for networking standards
+    vport->switch_address.sin_port = htons(port);
     if (inet_pton(AF_INET, ip, &vport->switch_address.sin_addr) != 1) {
         fprintf(stderr, "FAILED TO SET DESTINATION IP WITH INET_PTON\n");
         ExitProcess(1);
     }
 
     printf("Switch-Connection> Connected to Switch at %s:%d\n", ip, port);
+}
+
+
+// thread function to continuously read frames from the tap device
+// and send them if they contain actual ethernet data
+DWORD WINAPI forward_traffic_to_switch(LPVOID arg) {
+    struct virtual_port *vport = (struct virtual_port *)arg;
+    char buffer[ETHERNET_MAX_LEN];
+
+    while (1) {
+        int len = read_frame_from_tap(vport->tap_handle, buffer, sizeof(buffer));
+        if (len == -1) {
+            fprintf(stderr, "FAILED TO READ FRAME FROM TAP DEVICE\n");
+            ExitProcess(1);
+        }
+
+        // if the frame has actual data, ensures it has a header then sends to server
+        if (len > 0) {
+            if (len < 14) {
+                fprintf(stderr, "IMPROPER HEADER FOR OUTGOING ETHERNET FRAME\n");
+                ExitProcess(1);
+            }
+
+            sendto(
+                vport->port_socket,
+                buffer,
+                len,
+                0,
+                &vport->switch_address,
+                sizeof(vport->switch_address)
+            );
+        }
+    }
+}
+
+
+// helper function to read frames from the tap device in order
+// to send them to the server
+int read_frame_from_tap(HANDLE tap, char *buffer, int buffer_size) {
+    DWORD byte_len;
+    if (!ReadFile(tap, buffer, buffer_size, &byte_len, NULL)) {
+        return -1;
+    }
+    return (int)byte_len;
+}
+
+
+// thread function to continuously get frames sent over the port
+// connection and forward them to the tap device
+DWORD WINAPI forward_traffic_to_tap(LPVOID arg) {
+    struct virtual_port *vport = (struct virtual_port *)arg;
+    char buffer[ETHERNET_MAX_LEN];
+
+    while (1) {
+        // this gets traffic over the specified port
+        int len = recvfrom(
+            vport->port_socket,
+            buffer,
+            sizeof(buffer),
+            0,
+            &vport->switch_address,
+            sizeof(vport->switch_address)
+        );
+
+        // if the frame has actual data and a valid header, sends it to tap
+        if (len > 0) {
+            if (len < 14) {
+                fprintf(stderr, "IMPROPER HEADER FOR INCOMING ETHERNET FRAME\n");
+                ExitProcess(1);
+            }
+
+            if (write_frame_to_tap(vport->tap_handle, buffer, len) == -1) {
+                fprintf(stderr, "FAILED TO WRITE FRAME TO TAP DEVICE\n");
+                ExitProcess(1);
+            }
+        }
+    }
+}
+
+
+// helper function to write frames to the tap device that have been
+// received from the server
+int write_frame_to_tap(HANDLE tap, char *buffer, int buffer_size) {
+    DWORD written_len;
+    if (!WriteFile(tap, buffer, buffer_size, &written_len, NULL)) {
+        return -1;
+    }
+    return (int)written_len;
 }
